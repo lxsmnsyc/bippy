@@ -16,6 +16,7 @@ import type {
   FiberRoot,
   MemoizedState,
   ReactRenderer,
+  Thenable,
 } from './types.js';
 
 // https://github.com/facebook/react/blob/main/packages/react-reconciler/src/ReactWorkTags.js
@@ -262,9 +263,9 @@ export const traverseProps = (
 };
 
 export type ThenableData =
-  | { status: 'fulfilled'; value: unknown } 
-  | { status: 'rejected'; reason: unknown }
-  | { status: 'pending' };
+  | ({ status: 'fulfilled'; value: unknown } & Thenable<unknown>)
+  | ({ status: 'rejected'; reason: unknown } & Thenable<unknown>)
+  | ({ status: 'pending' } & Thenable<unknown>);
 
 interface ThenableState {
   _debugThenableState: ThenableData[] | { thenables: ThenableData[] };
@@ -285,7 +286,7 @@ export const getThenables = (fiber: Fiber): ThenableData[] => {
 };
 
 /**
- * Traverses up or down a {@link Fiber}'s props, return `true` to stop and select the current and previous props value.
+ * Traverses up or down a {@link Fiber}'s Thenables, return `true` to stop and select the current and previous props value.
  */
 export const traverseThenables = (
   fiber: Fiber,
