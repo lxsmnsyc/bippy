@@ -277,6 +277,7 @@ function isThenableState(dependencies: object): dependencies is ThenableState {
 
 export const getThenables = (fiber: Fiber): ThenableData[] => {
   if (fiber.dependencies && isThenableState(fiber.dependencies)) {
+    // https://github.com/facebook/react/blob/b3a95caf61bc716fb618997e6e9f3a0c8c9c8374/packages/react-reconciler/src/ReactFiberThenable.js#L80
     if (Array.isArray(fiber.dependencies._debugThenableState)) {
       return fiber.dependencies._debugThenableState;
     }
