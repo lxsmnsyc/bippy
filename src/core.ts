@@ -423,6 +423,7 @@ export const getNearestHostFibers = (fiber: Fiber): Fiber[] => {
 
   while (head) {
     const current = head.value;
+    head = head.next;
     if (isHostFiber(current)) {
       hostFibers.push(current);
     } else if (current.child) {
