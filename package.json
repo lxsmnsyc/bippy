@@ -15,6 +15,7 @@
   "packageManager": "pnpm@9.15.5",
   "private": true,
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@changesets/changelog-git": "^0.2.0",
     "@changesets/cli": "^2.27.11",
     "sherif": "^1.2.0"

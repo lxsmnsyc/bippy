@@ -478,10 +478,13 @@ export const getType = (type: unknown): React.ComponentType<unknown> | null => {
 };
 
 /**
- * Returns the display name of the {@link Fiber}.
+ * Returns the display name of the {@link Fiber} type.
  */
 export const getDisplayName = (type: unknown): string | null => {
   const currentType = type as FiberType;
+  if (typeof currentType === 'string') {
+    return currentType;
+  }
   if (
     typeof currentType !== 'function' &&
     !(typeof currentType === 'object' && currentType)
