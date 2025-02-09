@@ -321,3 +321,5 @@ export const getFiberSource = async (
   );
   return parseStackFrame(frame);
 };
+
+export * from './index.js';

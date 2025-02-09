@@ -1,5 +1,11 @@
 # bippy
 
+## 0.3.0
+
+### Minor Changes
+
+- adds getFiberSource for bippy/source
+
 ## 0.2.24
 
 ### Patch Changes
