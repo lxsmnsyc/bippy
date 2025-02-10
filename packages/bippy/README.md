@@ -384,7 +384,10 @@ returns an array of all host fibers that have committed and rendered in the prov
 ```typescript
 import { getMutatedHostFibers } from 'bippy';
 
-console.log(getMutatedHostFibers(fiber));
+const hostFibers = getMutatedHostFibers(fiber);
+for (const hostFiber of hostFibers) {
+  console.log('DOM node changed', hostFiber.stateNode);
+}
 ```
 
 ### isValidFiber
