@@ -397,6 +397,19 @@ import { isValidFiber } from 'bippy';
 console.log(isValidFiber(fiber));
 ```
 
+### getFiberSource
+
+returns the source file and line number for a given fiber.
+
+```typescript
+import { getFiberSource } from 'bippy/source';
+
+const source = getFiberSource(fiber);
+if (source) {
+  console.log(source.fileName, source.lineNumber, source.columnNumber);
+}
+```
+
 ## examples
 
 the best way to understand bippy is to [read the source code](https://github.com/aidenybai/bippy/blob/main/src/core.ts). here are some examples of how you can use it:
