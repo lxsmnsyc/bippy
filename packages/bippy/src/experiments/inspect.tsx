@@ -68,7 +68,7 @@ export interface InspectorProps {
 
 const isMac =
   typeof navigator !== 'undefined' &&
-  navigator.platform.toLowerCase().includes('mac');
+  navigator.platform?.toLowerCase().includes('mac');
 
 type InspectorTheme = {
   BASE_FONT_FAMILY: string;

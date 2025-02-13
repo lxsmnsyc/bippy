@@ -384,10 +384,7 @@ returns an array of all host fibers that have committed and rendered in the prov
 ```typescript
 import { getMutatedHostFibers } from 'bippy';
 
-const hostFibers = getMutatedHostFibers(fiber);
-for (const hostFiber of hostFibers) {
-  console.log('DOM node changed', hostFiber.stateNode);
-}
+console.log(getMutatedHostFibers(fiber));
 ```
 
 ### isValidFiber
@@ -400,17 +397,28 @@ import { isValidFiber } from 'bippy';
 console.log(isValidFiber(fiber));
 ```
 
-### getFiberSource
+## getFiberFromHostInstance
 
-returns the source file and line number for a given fiber.
+returns the fiber associated with a given host instance (e.g., a DOM element).
 
 ```typescript
-import { getFiberSource } from 'bippy/source';
+import { getFiberFromHostInstance } from 'bippy';
 
-const source = getFiberSource(fiber);
-if (source) {
-  console.log(source.fileName, source.lineNumber, source.columnNumber);
-}
+const fiber = getFiberFromHostInstance(document.querySelector('div'));
+console.log(fiber);
+```
+
+## getLatestFiber
+
+returns the latest fiber (since it may be double-buffered). usually use this in combination with `getFiberFromHostInstance`.
+
+```typescript
+import { getLatestFiber } from 'bippy';
+
+const latestFiber = getLatestFiber(
+  getFiberFromHostInstance(document.querySelector('div'))
+);
+console.log(latestFiber);
 ```
 
 ## examples
