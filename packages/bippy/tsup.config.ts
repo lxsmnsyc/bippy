@@ -40,6 +40,8 @@ export default defineConfig([
     entry: [
       './src/index.ts',
       './src/core.ts',
+      './src/jsx-runtime.ts',
+      './src/jsx-dev-runtime.ts',
       './src/experiments/inspect.tsx',
       './src/experiments/shrinkwrap.ts',
       './src/source.ts',

@@ -10,6 +10,7 @@ import {
   getRDTHook,
   getDisplayName,
 } from './index.js';
+import React from 'react';
 
 interface FiberSource {
   fileName: string;
@@ -107,7 +108,7 @@ const parseStackFrame = async (frame: string): Promise<FiberSource | null> => {
         column: columnNumber,
       });
       return {
-        fileName: result.source || '',
+        fileName: sourcemap.file || '',
         lineNumber: result.line || 0,
         columnNumber: result.column || 0,
       };
@@ -244,8 +245,7 @@ const describeNativeComponentFrame = (
               s--;
               c--;
               if (c < 0 || sampleLines[s] !== controlLines[c]) {
-                // biome-ignore lint/style/useTemplate: <explanation>
-                let frame = '\n' + sampleLines[s].replace(' at new ', ' at ');
+                let frame = `\n${sampleLines[s].replace(' at new ', ' at ')}`;
                 const displayName = getDisplayName(fn);
                 if (displayName && frame.includes('<anonymous>')) {
                   frame = frame.replace('<anonymous>', displayName);
@@ -270,6 +270,13 @@ const describeNativeComponentFrame = (
   return syntheticFrame;
 };
 
+const ReactSharedInternals =
+  // biome-ignore lint/suspicious/noExplicitAny: OK
+  (React as any)
+    ?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE ||
+  // biome-ignore lint/suspicious/noExplicitAny: OK
+  (React as any)?.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+
 export const getFiberSource = async (
   fiber: Fiber,
 ): Promise<FiberSource | null> => {
@@ -286,8 +293,15 @@ export const getFiberSource = async (
     };
   }
 
+  // passed by bippy's jsx-dev-runtime
+  if (fiber.memoizedProps?.__source) {
+    return fiber.memoizedProps.__source as FiberSource;
+  }
+
   const rdtHook = getRDTHook();
-  let currentDispatcherRef: React.MutableRefObject<unknown> | undefined;
+
+  let currentDispatcherRef: React.MutableRefObject<unknown> | undefined =
+    ReactSharedInternals?.ReactCurrentDispatcher || ReactSharedInternals?.H;
   for (const renderer of rdtHook.renderers.values()) {
     // biome-ignore lint/suspicious/noExplicitAny: OK
     currentDispatcherRef = (renderer as any).currentDispatcherRef;
@@ -295,6 +309,7 @@ export const getFiberSource = async (
       break;
     }
   }
+
   if (!currentDispatcherRef) {
     return null;
   }
@@ -317,7 +332,7 @@ export const getFiberSource = async (
   const frame = describeNativeComponentFrame(
     componentFunction,
     fiber.tag === ClassComponentTag,
-    currentDispatcherRef,
+    ReactSharedInternals,
   );
   return parseStackFrame(frame);
 };

@@ -13,11 +13,12 @@ export default defineConfig({
   plugins: [
     mkcert(),
     TanStackRouterVite(),
-    // react({
-    //   // babel: {
-    //   //   plugins: [['babel-plugin-react-compiler', {}]],
-    //   // },
-    // }),
+    react({
+      jsxImportSource: 'bippy/dist',
+      // babel: {
+      //   plugins: [['babel-plugin-react-compiler', {}]],
+      // },
+    }),
     tailwindcss(),
   ],
   define: {

@@ -524,6 +524,26 @@ export const isInstrumentationActive = (): boolean => {
   );
 };
 
+/**
+ * Returns the latest fiber (since it may be double-buffered).
+ */
+export const getLatestFiber = (fiber: Fiber): Fiber => {
+  const alternate = fiber.alternate;
+  if (!alternate) return fiber;
+  if (alternate.actualStartTime && fiber.actualStartTime) {
+    return alternate.actualStartTime > fiber.actualStartTime
+      ? alternate
+      : fiber;
+  }
+  for (const root of _fiberRoots) {
+    const latestFiber = traverseFiber(root.current, (innerFiber) => {
+      if (innerFiber === fiber) return true;
+    });
+    return latestFiber || alternate;
+  }
+  return fiber;
+};
+
 export type RenderPhase = 'mount' | 'update' | 'unmount';
 
 export type RenderHandler = <S>(
@@ -923,6 +943,8 @@ export const getFiberFromHostInstance = <T>(hostInstance: T): Fiber | null => {
 
 export const INSTALL_ERROR = new Error();
 
+export const _fiberRoots = new Set<FiberRoot>();
+
 export const secure = (
   options: InstrumentationOptions,
   secureOptions: {
@@ -976,6 +998,9 @@ export const secure = (
       const onCommitFiberRoot = options.onCommitFiberRoot;
       if (onCommitFiberRoot) {
         options.onCommitFiberRoot = (rendererID, root, priority) => {
+          if (!_fiberRoots.has(root)) {
+            _fiberRoots.add(root);
+          }
           try {
             onCommitFiberRoot(rendererID, root, priority);
           } catch (err) {

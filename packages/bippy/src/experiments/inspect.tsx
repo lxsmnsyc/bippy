@@ -21,9 +21,11 @@ import {
   getNearestHostFiber,
   getRDTHook,
   hasRDTHook,
+  isCompositeFiber,
   isInstrumentationActive,
   traverseFiber,
 } from '../index.js';
+import { getFiberSource } from '../source.js';
 
 const FIBER_PROP_EXPLANATIONS: Record<string, string> = {
   tag: 'Numeric type identifier for this fiber (e.g. 1=FunctionComponent, 5=HostComponent)',
@@ -252,6 +254,14 @@ export const RawInspector = React.memo(
     const getFiberForDisplay = useCallback(() => {
       if (selectedFiber) return selectedFiber;
       const fiber = getFiberFromHostInstance(element);
+      const parentFiber = traverseFiber(
+        fiber,
+        (f) => {
+          if (isCompositeFiber(f)) return true;
+        },
+        true,
+      );
+      console.log('fiber', parentFiber && getFiberSource(parentFiber));
 
       return fiber;
     }, [selectedFiber, element]);

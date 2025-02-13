@@ -72,9 +72,23 @@ export const installRDTHook = (
   };
   try {
     objectDefineProperty(globalThis, '__REACT_DEVTOOLS_GLOBAL_HOOK__', {
-      value: rdtHook,
+      get() {
+        return rdtHook;
+      },
+      set(newHook) {
+        if (newHook && typeof newHook === 'object') {
+          const ourRenderers = rdtHook.renderers;
+          globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = newHook;
+          if (ourRenderers.size > 0) {
+            ourRenderers.forEach((renderer, id) => {
+              newHook.renderers.set(id, renderer);
+            });
+            patchRDTHook(onActive);
+          }
+        }
+      },
       configurable: true,
-      writable: true,
+      enumerable: true,
     });
     // [!] this is a hack for chrome extensions - if we install before React DevTools, we could accidently prevent React DevTools from installing:
     // https://github.com/facebook/react/blob/18eaf51bd51fed8dfed661d64c306759101d0bfd/packages/react-devtools-extensions/src/contentScripts/installHook.js#L30C6-L30C27
@@ -110,7 +124,6 @@ export const patchRDTHook = (onActive?: () => unknown): void => {
     const rdtHook = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__;
     if (!rdtHook) return;
     if (!rdtHook._instrumentationSource) {
-      isReactRefreshOverride = isReactRefresh(rdtHook);
       rdtHook.checkDCE = checkDCE;
       rdtHook.supportsFiber = true;
       rdtHook.supportsFlight = true;
@@ -128,21 +141,21 @@ export const patchRDTHook = (onActive?: () => unknown): void => {
         isReactRefreshOverride = true;
         // but since the underlying implementation doens't care,
         // it's ok: https://github.com/facebook/react/blob/18eaf51bd51fed8dfed661d64c306759101d0bfd/packages/react-refresh/src/ReactFreshRuntime.js#L430
-        // @ts-expect-error this is not actually a ReactRenderer,
-        let nextID = rdtHook.inject(null);
+        const nextID = rdtHook.inject({
+          // @ts-expect-error this is not actually a ReactRenderer,
+          scheduleRefresh() {},
+        });
         if (nextID) {
           rdtHook._instrumentationIsActive = true;
         }
-        rdtHook.inject = () => nextID++;
-      } else {
-        rdtHook.inject = (renderer) => {
-          const id = prevInject(renderer);
-          rdtHook._instrumentationIsActive = true;
-          // biome-ignore lint/complexity/noForEach: prefer forEach for Set
-          onActiveListeners.forEach((listener) => listener());
-          return id;
-        };
       }
+      rdtHook.inject = (renderer) => {
+        const id = prevInject(renderer);
+        rdtHook._instrumentationIsActive = true;
+        // biome-ignore lint/complexity/noForEach: prefer forEach for Set
+        onActiveListeners.forEach((listener) => listener());
+        return id;
+      };
     }
     if (
       rdtHook.renderers.size ||
@@ -182,4 +195,16 @@ export const isClientEnvironment = (): boolean => {
       (window.document?.createElement ||
         window.navigator?.product === 'ReactNative'),
   );
+};
+
+/**
+ * Usually used purely for side effect
+ */
+export const safelyInstallRDTHook = () => {
+  try {
+    // __REACT_DEVTOOLS_GLOBAL_HOOK__ must exist before React is ever executed
+    if (isClientEnvironment()) {
+      getRDTHook();
+    }
+  } catch {}
 };

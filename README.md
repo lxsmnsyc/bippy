@@ -397,6 +397,30 @@ import { isValidFiber } from 'bippy';
 console.log(isValidFiber(fiber));
 ```
 
+## getFiberFromHostInstance
+
+returns the fiber associated with a given host instance (e.g., a DOM element).
+
+```typescript
+import { getFiberFromHostInstance } from 'bippy';
+
+const fiber = getFiberFromHostInstance(document.querySelector('div'));
+console.log(fiber);
+```
+
+## getLatestFiber
+
+returns the latest fiber (since it may be double-buffered). usually use this in combination with `getFiberFromHostInstance`.
+
+```typescript
+import { getLatestFiber } from 'bippy';
+
+const latestFiber = getLatestFiber(
+  getFiberFromHostInstance(document.querySelector('div'))
+);
+console.log(latestFiber);
+```
+
 ## examples
 
 the best way to understand bippy is to [read the source code](https://github.com/aidenybai/bippy/blob/main/src/core.ts). here are some examples of how you can use it:
