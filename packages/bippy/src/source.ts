@@ -280,15 +280,16 @@ const ReactSharedInternals =
 export const getFiberSource = async (
   fiber: Fiber,
 ): Promise<FiberSource | null> => {
-  if (fiber._debugSource) {
-    const { fileName, lineNumber } = fiber._debugSource;
+  const debugSource = fiber._debugSource;
+  if (debugSource) {
+    const { fileName, lineNumber } = debugSource;
     return {
       fileName,
       lineNumber,
       columnNumber:
-        'columnNumber' in fiber._debugSource &&
-        typeof fiber._debugSource.columnNumber === 'number'
-          ? fiber._debugSource.columnNumber
+        'columnNumber' in debugSource &&
+        typeof debugSource.columnNumber === 'number'
+          ? debugSource.columnNumber
           : 0,
     };
   }
