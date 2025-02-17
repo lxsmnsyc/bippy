@@ -12,7 +12,7 @@ import {
 } from './index.js';
 import React from 'react';
 
-interface FiberSource {
+export interface FiberSource {
   fileName: string;
   lineNumber: number;
   columnNumber: number;
