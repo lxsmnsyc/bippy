@@ -1,7 +1,13 @@
 import type * as __BippyNamespace__ from 'bippy';
-import type { FiberRoot } from 'bippy';
+import type { Fiber, FiberRoot } from 'bippy';
 import { CssToTailwindTranslator } from './css-to-tailwind';
 import styleToCss from 'style-object-to-css-string';
+import { extractColors } from 'extract-colors';
+import { renderToString } from 'react-dom/server';
+import { Children } from 'react';
+
+// biome-ignore lint/suspicious/noExplicitAny: used by puppeteer
+(globalThis as any).extractColors = extractColors;
 
 type StylesMap = Record<string, string>;
 
@@ -108,9 +114,11 @@ const filterNoisyTailwindClasses = (tailwindClasses: string) => {
 const ShrinkwrapData: {
   isActive: boolean;
   elementMap: Map<number, Set<Element>>;
+  specTree: string;
 } = {
   isActive: false,
   elementMap: new Map(),
+  specTree: '',
 };
 // biome-ignore lint/suspicious/noExplicitAny: used by puppeteer
 (globalThis as any).ShrinkwrapData = ShrinkwrapData;
@@ -533,29 +541,87 @@ export const draw = async (
 };
 
 interface SpecNode {
-  id: number;
-  styles: string;
+  fiber: Fiber;
   children: SpecNode[];
 }
 
 export const createSpecTree = (root: FiberRoot) => {
-  Bippy.traverseFiber(root.current, (fiber) => {
-    if (Bippy.isHostFiber(fiber)) {
-      console.log(
-        fiber.stateNode,
-        filterNoisyTailwindClasses(
-          convertStylesToTailwind(getUserStyles(fiber.stateNode)),
-        ),
-      );
+  const buildSpecNode = (fiber: Fiber): SpecNode => {
+    const node: SpecNode = {
+      fiber,
+      children: [],
+    };
+
+    let child = fiber.child;
+    while (child) {
+      node.children.push(buildSpecNode(child));
+      child = child.sibling;
     }
-  });
+
+    return node;
+  };
+
+  return buildSpecNode(root.current);
+};
+
+export const serializeSpecTree = (node: SpecNode) => {
+  const serializeProps = (fiber: Fiber) => {
+    let result = '';
+    Bippy.traverseProps(fiber, (key, value) => {
+      if (key === 'children') return;
+      if (typeof value === 'string') {
+        result += ` ${key}="${value}"`;
+      } else if (typeof value === 'number' || typeof value === 'boolean') {
+        result += ` ${key}={${value}}`;
+      } else if (value === null || value === undefined) {
+        result += ` ${key}={${String(value)}}`;
+      } else if (typeof value === 'object') {
+        result += ` ${key}={${JSON.stringify(value)}}`;
+      } else if (typeof value === 'function') {
+        result += ` ${key}={/* function */}`;
+      }
+    });
+    return result;
+  };
+
+  const serialize = (specNode: SpecNode, indent = 0): string => {
+    const { fiber } = specNode;
+    const displayName = Bippy.getDisplayName(fiber.type) || 'Unknown';
+    const props = Bippy.isHostFiber(fiber) ? serializeProps(fiber) : '';
+    const indentation = '  '.repeat(indent);
+    const children = fiber.memoizedProps?.children;
+    if (children) {
+      try {
+        const childrenArray = Children.toArray(children as React.ReactNode);
+        if (childrenArray.length > 0) {
+          const renderedChildren = renderToString(children as React.ReactNode);
+          if (renderedChildren) {
+            return `>{${renderedChildren}}</`;
+          }
+        }
+      } catch {
+        // If we can't render the children, just skip them
+      }
+    }
+
+    if (specNode.children.length === 0) {
+      return `${indentation}<${displayName}${props} />`;
+    }
+
+    const childrenJsx = specNode.children
+      .map((child) => serialize(child, indent + 1))
+      .join('\n');
+
+    return `${indentation}<${displayName}${props}>\n${childrenJsx}\n${indentation}</${displayName}>`;
+  };
+
+  return serialize(node);
 };
 
 let ctx: CanvasRenderingContext2D | null = null;
 let canvas: HTMLCanvasElement | null = null;
 
 const handleFiberRoot = (root: FiberRoot) => {
-  createSpecTree(root);
   const elements = new Set<Element>();
   Bippy.traverseFiber(root.current, (fiber) => {
     Bippy.setFiberId(fiber, Bippy.getFiberId(fiber));
@@ -563,9 +629,18 @@ const handleFiberRoot = (root: FiberRoot) => {
       return;
     }
     const hostFiber = Bippy.getNearestHostFiber(fiber);
-    if (!hostFiber) return;
+    if (
+      !hostFiber ||
+      !isElementVisible(hostFiber.stateNode) ||
+      !isTopElement(hostFiber.stateNode)
+    )
+      return;
     elements.add(hostFiber.stateNode);
   });
+  const specTree = createSpecTree(root);
+  const serializedTree = serializeSpecTree(specTree);
+  // biome-ignore lint/suspicious/noExplicitAny: OK
+  (globalThis as any).ShrinkwrapData.specTree = serializedTree;
   return elements;
 };
 
@@ -598,11 +673,11 @@ const init = () => {
 
   document.documentElement.appendChild(host);
 
-  let isResizeScheduled = false;
+  let isAnimationScheduled = false;
   const resizeHandler = () => {
-    if (!isResizeScheduled) {
-      isResizeScheduled = true;
-      setTimeout(() => {
+    if (!isAnimationScheduled) {
+      isAnimationScheduled = true;
+      requestAnimationFrame(() => {
         if (!canvas) return;
         const width = window.innerWidth;
         const height = window.innerHeight;
@@ -625,27 +700,35 @@ const init = () => {
         if (ctx && canvas) {
           draw(ctx, canvas, Array.from(elements));
         }
-        isResizeScheduled = false;
+        isAnimationScheduled = false;
       });
     }
   };
 
   const scrollHandler = () => {
-    const elements = new Set<Element>();
-    for (const root of Array.from(fiberRoots)) {
-      for (const element of Array.from(handleFiberRoot(root))) {
-        elements.add(element);
-      }
-    }
-    if (ctx && canvas) {
-      draw(ctx, canvas, Array.from(elements));
+    if (!isAnimationScheduled) {
+      isAnimationScheduled = true;
+      requestAnimationFrame(() => {
+        const elements = new Set<Element>();
+        for (const root of Array.from(fiberRoots)) {
+          for (const element of Array.from(handleFiberRoot(root))) {
+            elements.add(element);
+          }
+        }
+        if (ctx && canvas) {
+          draw(ctx, canvas, Array.from(elements));
+        }
+        isAnimationScheduled = false;
+      });
     }
   };
 
+  window.addEventListener('wheel', scrollHandler);
   window.addEventListener('scroll', scrollHandler);
   window.addEventListener('resize', resizeHandler);
 
   return () => {
+    window.removeEventListener('wheel', scrollHandler);
     window.removeEventListener('scroll', scrollHandler);
     window.removeEventListener('resize', resizeHandler);
   };
@@ -656,6 +739,7 @@ Bippy.instrument({
     init();
   },
   onCommitFiberRoot(_, root) {
+    fiberRoots.add(root);
     const elements = handleFiberRoot(root);
     if (ctx && canvas) {
       draw(ctx, canvas, Array.from(elements));

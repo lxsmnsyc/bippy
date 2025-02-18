@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { google } from '@ai-sdk/google';
-import { generateObject } from 'ai';
+import { generateObject, generateText } from 'ai';
 import { z } from 'zod';
 import type { Page, Browser } from 'puppeteer-core';
 
@@ -10,6 +10,7 @@ export const maxDuration = 300;
 
 const CHROMIUM_PATH = 'https://fs.bippy.dev/chromium.tar';
 const BIPPY_SOURCE = process.env.BIPPY_SOURCE as string;
+const EXTRACT_COLORS_SOURCE = process.env.EXTRACT_COLORS_SOURCE as string;
 const INJECT_SOURCE = process.env.INJECT_SOURCE as string;
 
 const CHROMIUM_ARGS = [
@@ -20,6 +21,10 @@ const CHROMIUM_ARGS = [
 ];
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const convertBufferToDataUrl = (buffer: Buffer, mimeType: string) => {
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+};
 
 const getBrowser = async (): Promise<Browser> => {
   if (process.env.NODE_ENV === 'production') {
@@ -57,7 +62,7 @@ export const POST = async (request: NextRequest) => {
   }
 
   const browser = await getBrowser();
-  const { url } = await request.json();
+  const { url, prompt } = await request.json();
   const page = (await browser.newPage()) as Page;
 
   const stylesheets = new Map<string, string>();
@@ -90,7 +95,9 @@ export const POST = async (request: NextRequest) => {
     Object.defineProperty(navigator, 'headless', { get: () => undefined });
   });
 
-  await page.evaluateOnNewDocument(`${BIPPY_SOURCE}\n\n${INJECT_SOURCE}`);
+  const scripts = [BIPPY_SOURCE, EXTRACT_COLORS_SOURCE, INJECT_SOURCE];
+
+  await page.evaluateOnNewDocument(scripts.join('\n\n'));
 
   await page.goto(url, { waitUntil: ['domcontentloaded', 'load'] });
 
@@ -102,17 +109,114 @@ export const POST = async (request: NextRequest) => {
   });
 
   const html = await page.content();
+  const body = await page.evaluate(() => {
+    const bodyClone = document.body.cloneNode(true) as HTMLElement;
+
+    const elementsToRemove = bodyClone.querySelectorAll(
+      'script, link, style, noscript, iframe, [aria-hidden="true"], .hidden, [hidden]',
+    );
+    for (const el of elementsToRemove) {
+      el.remove();
+    }
+
+    const removeEmpty = (element: HTMLElement) => {
+      for (const child of element.children) {
+        if (child instanceof HTMLElement) {
+          removeEmpty(child);
+        }
+      }
+
+      if (!element.innerHTML.trim() && element.parentElement) {
+        element.remove();
+      }
+    };
+
+    removeEmpty(bodyClone);
+
+    return bodyClone.innerHTML.trim();
+  });
+
+  const bodyChunks: string[] = [];
+
+  // Chunk the body by approximately 900,000 tokens (text.length / 4 = tokens)
+  const chunkSize = 900000 * 4;
+  for (let i = 0; i < body.length; i += chunkSize) {
+    bodyChunks.push(body.slice(i, i + chunkSize));
+  }
 
   const rawScreenshot = await page.screenshot({
     optimizeForSpeed: true,
     quality: 80,
     type: 'jpeg',
   });
+  const rawScreenshotDataUrl = convertBufferToDataUrl(
+    rawScreenshot,
+    'image/jpeg',
+  );
 
-  await page.evaluate(() => {
-    const colors = getImageColors(rawScreenshot, 'image/jpeg');
-    console.log(colors);
-  });
+  const palette = await page.evaluate((rawScreenshotDataUrl) => {
+    // biome-ignore lint/suspicious/noExplicitAny: OK
+    const extractColors = (globalThis as any).extractColors;
+    const img = new Image();
+    img.src = rawScreenshotDataUrl;
+    const colors = extractColors(img);
+    return colors;
+  }, rawScreenshotDataUrl);
+
+  const summaryChunks = await Promise.all(
+    bodyChunks.map((bodyChunk) =>
+      generateText({
+        model: google('gemini-2.0-flash'),
+        messages: [
+          {
+            role: 'user',
+            content: `Page: ${url}
+Title: ${title}
+Description: ${description}
+
+\`\`\`html
+${bodyChunk}
+\`\`\`
+
+Provide a concise list of steps to re-create this page. Only return the steps, no other text.
+`,
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                image: rawScreenshotDataUrl,
+              },
+            ],
+          },
+        ],
+      }),
+    ),
+  );
+
+  let summary = summaryChunks.map((r) => r.text).join('\n');
+
+  if (summaryChunks.length > 1) {
+    const combinedSummaryChunks = await generateText({
+      model: google('gemini-2.0-flash'),
+      messages: [
+        {
+          role: 'user',
+          content: `Combine the following steps into a single list of steps to re-create this page:
+
+${summaryChunks
+  .map(
+    (r, i) => `Chunk of steps ${i + 1}:
+${r.text}`,
+  )
+  .join('\n\n')}
+`,
+        },
+      ],
+    });
+    summary = combinedSummaryChunks.text;
+  }
 
   await delay(1000);
 
@@ -121,6 +225,8 @@ export const POST = async (request: NextRequest) => {
     quality: 80,
     type: 'jpeg',
   });
+
+  const replacements: Record<string, string> = {};
 
   const stringifiedElementMap = await page.evaluate(() => {
     // https://x.com/theo/status/1889972653785764084
@@ -150,6 +256,17 @@ export const POST = async (request: NextRequest) => {
     }
 
     return stringifiedElementMap.trim();
+  });
+
+  const serializedTree = await page.evaluate(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: OK
+    const Bippy = (globalThis as any).Bippy;
+    const fiberRoots = Bippy._fiberRoots;
+    const root = Array.from(fiberRoots)[0];
+    if (!root) return '';
+
+    const specTree = Bippy.createSpecTree(root);
+    return Bippy.serializeSpecTree(specTree);
   });
 
   const { object } = await generateObject({
@@ -189,6 +306,11 @@ export const POST = async (request: NextRequest) => {
 Title: ${title}
 Description: ${description}
 
+Component Tree:
+\`\`\`jsx
+${serializedTree}
+\`\`\`
+
 Analyze this web application screenshot and provide:
 
 1. A concise summary of the page's purpose and main functionality
@@ -206,9 +328,7 @@ Key points to consider:
 - Identify interactive elements and complex UI patterns
 - Skip basic containers or simple text elements
 - Be careful, do not assume a components role, look through the page exhaustively
-- The reactComponentFunctionDefinition should be a valid React component function. Don't just return the html, return a valid React component function snippet.
-
-Provide detailed information about ALL numbered components visible in the screenshot, even if they seem minor. Each component should have a clear role description that would allow recreation.`,
+- The reactComponentFunctionDefinition should be a valid React component function. Don't just return the html, return a valid React component function snippet.`,
       },
       {
         role: 'user',
@@ -226,5 +346,18 @@ Provide detailed information about ALL numbered components visible in the screen
     ],
   });
 
-  return NextResponse.json({ result: object });
+  return NextResponse.json({
+    summary,
+    component_info: object,
+    // meta: {
+    //   title,
+    //   description,
+    //   prompt,
+    // },
+    // code: {
+    //   replacements,
+    // },
+    palette: palette.map(({ hex }: { hex: string }) => hex),
+    // screenshot: convertBufferToDataUrl(screenshot, 'image/jpeg'),
+  });
 };
